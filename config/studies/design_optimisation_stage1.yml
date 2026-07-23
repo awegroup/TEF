@@ -1,0 +1,55 @@
+metadata:
+  name: TEF stage 1 - single rated power, wing area only
+
+# Purpose: cheaply locate and tune the wing-area optimum at ONE rated
+# power before committing to the full multi-rating, two-variable loop.
+# Tether stress is fixed here (weak lever); add it as a second axis only
+# once the S range is tuned. nominal_crest is one QSM per point, so 6
+# points is ~25-35 min. The final study uses root_find_rated (now capped
+# to ~7 QSM per point) for exact rated power.
+
+base_config_dir: config/base
+results_dir: results/design_optimisation_stage1
+
+rated_power_w: [50000.0]
+
+# FINAL reportable case. The 90/97.5/105 probe found an interior LCoE
+# minimum at S=97.5 (844.97/826.15/829.00, storage-excluded), turning up on
+# both sides -> the 50 kW optimum is a broad flat minimum near S~100 m2.
+# This run pins S=97.5 exactly, tightens the rated tolerance to 500 W (kills
+# the ~3% run-to-run noise the loose 3000 W bisection caused), and turns
+# storage sizing ON for the true reportable LCoE. Single grid point.
+variables:
+  # Single point at S=97.5: DesignSpace requires upper > lower, and a
+  # 1-point linspace returns the LOWER bound, so lower=97.5 / upper=97.6
+  # with grid_points=1 evaluates exactly S=97.5.
+  - {name: flat_area_m2, lower: 97.5, upper: 97.6}
+
+grid_points:
+  flat_area_m2: 1
+
+generator:
+  # root_find_rated: solve generator max_power so emergent rated = 50 kW.
+  # crest was ~2.38 at S=97.5 (needed ~117.5 kW), so 2.8 -> 140 kW upper
+  # bracket is safe. rated_tolerance_w tightened to 500 W (~1%) for an exact,
+  # stable 50 kW - this is the reportable point, so accuracy over speed.
+  mode: root_find_rated
+  crest_assumed: 2.8
+  rated_tolerance_w: 500
+
+design_defaults:
+  allowable_tether_stress_pa: 4.0e+8  # 0.4 GPa, fixed for this stage (signed exponent: YAML needs it)
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+refine:
+  method: none
+
+execution:
+  # Storage sizing stays OFF for the sweep: it does not affect the emergent
+  # Storage sizing ON for this final single case: this is the reportable
+  # LCoE, so it must include storage cost. (During the multi-point sweeps it
+  # was off - it does not affect emergent rated, so running it inside every
+  # bisection iteration was wasted work.)
+  run_storage_sizing: true
+  overwrite: true

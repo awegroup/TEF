@@ -1,0 +1,35 @@
+metadata:
+  name: TEF design optimisation SMOKE (fast end-to-end check)
+
+base_config_dir: config/base
+results_dir: results/design_optimisation_smoke
+
+# Few ratings for a quick check.
+rated_power_w: [50000.0, 150000.0, 300000.0]
+
+variables:
+  - {name: flat_area_m2, lower: 25.0, upper: 200.0}
+  - {name: allowable_tether_stress_pa, lower: 2.0e+8, upper: 6.0e+8}
+
+# Coarse 3 x 3 grid.
+grid_points:
+  flat_area_m2: 3
+  allowable_tether_stress_pa: 3
+
+# nominal_crest is the cheap generator mode: one evaluation per cell
+# (no rated-power root-find). Rated power is nominal here; switch to
+# root_find_rated for the real study once the chain is confirmed.
+generator:
+  mode: nominal_crest
+  crest_assumed: 2.9
+
+design_defaults:
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+refine:
+  method: none
+
+execution:
+  run_storage_sizing: true
+  overwrite: true

@@ -1,0 +1,22 @@
+metadata:
+  name: TEF generator power sweep
+
+base_config_dir: config/base
+results_dir: results/generator_power_sweep
+
+areas_m2: [25.0, 50.0, 100.0, 200.0, 400.0]
+
+generator_specific_power_w_m2_projected:
+  values: [1000.0, 1500.0, 2000.0, 2500.0, 3000.0, 3500.0, 4000.0]
+
+design_defaults:
+  max_wing_loading_n_m2_projected: null
+  allowable_tether_stress_pa: null
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+execution:
+  validate: true
+  run_storage_sizing: true
+  continue_on_failure: true
+  overwrite: false

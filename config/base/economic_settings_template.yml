@@ -1,0 +1,77 @@
+# TEF economic settings template: TU Delft V3.25 soft kite, GG,
+# AWESPA-connected. Derived from EcoMo's economic_settings_V3_example.yml.
+#
+# The input_files and wind_resource.resource_file entries are placeholders;
+# TEF rewrites them per case so all paths resolve relative to the generated
+# settings file in the case directory.
+
+topology:
+  power: GG        # GG (ground-gen) or FG (fly-gen)
+  wing: soft       # fixed or soft
+
+input_files:
+  system: system.yml                    # awesIO system_schema.yml (scaled)
+  cost_inputs: economic_cost_inputs.yml
+  performance: null                     # ignored in AWESPA-connected mode
+  aep_results: aep_results.yml          # AWESPA calculate_aep() output
+  power_curves: power_curves.yml        # awesIO power_curves_schema.yml
+
+wind_resource:
+  # awesIO wind_resource_schema.yml file (relative to this settings file).
+  # When set, the site wind-speed distribution from this file is used for the
+  # economic integrals; otherwise the Weibull parameters below are used.
+  resource_file: wind_resource.yml
+  weibull_shape: 2
+  weibull_scale: 8     # m/s
+
+business:
+  n_years: 25
+  cost_of_debt: 0.08
+  cost_of_equity: 0.12
+  tax_rate: 0.25
+  debt_to_equity: 2.3333333333333335   # 70/30 debt-to-equity ratio
+
+# Development stage: early, mid or mature. Sets the maturity-linked inputs
+# (canopy life, operating hours, per-flight-hour maintenance, tether
+# operational life) from a preset. Explicit values below or in the cost
+# inputs override the preset. The optimisation runs at mid maturity.
+development_stage: mid
+
+# Explicit labour OPEX. The operating and maintenance hours come from the
+# development stage unless set here. Omit this block to skip the labour OPEX.
+operations:
+  labour_price: 50                        # EUR/h
+  automation: 0.0                         # automation fraction in [0, 1]
+  availability: 0.90                      # fraction of operating-wind time flown
+
+# Replacement frequencies [1/year].
+# null = auto-estimate from the load/cycle models, 0 = never replaced.
+replacements:
+  kite_structure: null
+  tether: null
+  ultracapacitor: null
+  battery: null
+  hydraulic_accumulator: 0.1
+  hydraulic_motor: 0.083
+  pump_motor: 0.125
+
+# Inputs that have no field in the awesIO system schema yet.
+# TODO: propose awesIO schema extensions for these.
+system_extras:
+  onboard_generator_rated_power: 1000.0    # W
+  onboard_battery_capacity: 0.0            # kWh
+  hydraulic_accumulator_capacity: 1.1377   # kWh
+  # Tether force used in AWESPA-connected mode. The V3 power_curves.yml already
+  # carries the ground tether force, so this override is left null (the model
+  # reads the traction-phase force from the power curves).
+  tether_force_override: null
+
+# Optional analysis/plotting layer (OFF by default). When enabled, the run
+# script calls run_analysis() after compute_economics() and writes figures to
+# results_example/analysis/. It only re-runs the model (sweeps); it never
+# changes the economics. See ecomo.ecomo.analysis.
+analysis:
+  enabled: false
+  # plots: [stacked_bar, tornado, sweeps, contour, tether_life, power_curve]
+  # n_points: 7        # points per 1D sweep
+  # grid: [6, 6]       # 2D contour resolution (n_x, n_y)

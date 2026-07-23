@@ -1,0 +1,50 @@
+metadata:
+  name: TEF design optimisation (S x tether stress per rated power)
+
+base_config_dir: config/base
+results_dir: results/design_optimisation
+
+# Fixed rated power on the outer axis; the design is optimised at each.
+# Capped at 200 kW: above this the matched soft wing exceeds both the
+# 400 m2 mass-model anchor and any realistic single LEI kite.
+rated_power_w: [50000.0, 100000.0, 150000.0, 200000.0]
+
+# Optimised design variables and their inclusive bounds.
+#
+# WARNING: a single absolute flat_area band cannot fit every rating -
+# the matched wing scales with rated power (~P_rated / 0.55 kW/m2 flat),
+# so 50 kW wants ~45-170 m2 while 200 kW wants ~180-670 m2. Set these
+# bounds per rating from the specific-power band (see the stage-1 tuning)
+# or run each rating separately. The values below are a placeholder only.
+variables:
+  - {name: flat_area_m2, lower: 45.0, upper: 400.0}
+  - {name: allowable_tether_stress_pa, lower: 2.0e+8, upper: 6.0e+8}
+
+# Grid resolution per variable (full-factorial). The grid is the primary
+# optimiser and also the LCoE surface for plotting.
+grid_points:
+  flat_area_m2: 8
+  allowable_tether_stress_pa: 5
+
+# Generator sizing to hold the target rated power.
+#   root_find_rated: solve max_power so emergent rated == target (exact)
+#   nominal_crest:   max_power = rated * crest_assumed (cheap, nominal)
+#   as_configured:   generator comes from design_defaults below
+generator:
+  mode: root_find_rated
+  crest_assumed: 2.9
+  rated_tolerance_w: 500.0
+
+# Fixed design fields shared by every case.
+design_defaults:
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Optional local refinement of the best grid cell (needs scipy):
+#   none | nelder_mead | slsqp
+refine:
+  method: none
+
+execution:
+  run_storage_sizing: true
+  overwrite: true

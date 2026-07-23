@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+venv/
+.venv/
+
+# Tests
+tests/*
+!tests/conftest.py
+
+# XDSM diagrams
+XDSM/
+
+# Results (every case folder is regenerable from config + code)
+results/*
+!results/.gitkeep
+
+# Tooling
+.pytest_cache/
+.vscode/
+
+# LaTeX build artefacts (XDSM diagram)
+*.aux
+*.log

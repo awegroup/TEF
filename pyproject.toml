@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tef"
+version = "0.1.0"
+description = "Techno-economic framework for soft-wing airborne wind energy systems"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "pandas",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+plots = [
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

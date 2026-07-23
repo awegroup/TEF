@@ -1,0 +1,21 @@
+metadata:
+  name: TEF area sweep 25 to 400
+
+base_config_dir: config/base
+results_dir: results/area_sweep_25_400
+
+design_defaults:
+  max_wing_loading_n_m2_projected: null
+  allowable_tether_stress_pa: null
+  generator_specific_power_w_m2_projected: null
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+sweep:
+  flat_area_m2: [25.0, 50.0, 100.0, 200.0, 400.0]
+
+execution:
+  validate: true
+  run_storage_sizing: true
+  continue_on_failure: true
+  overwrite: false
