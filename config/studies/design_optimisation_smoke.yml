@@ -4,8 +4,8 @@ metadata:
 base_config_dir: config/base
 results_dir: results/design_optimisation_smoke
 
-# Few ratings for a quick check.
-rated_power_w: [50000.0, 150000.0, 300000.0]
+# A couple of generator limits for a quick check.
+generator_max_power_w: [40000.0, 150000.0]
 
 variables:
   - {name: flat_area_m2, lower: 25.0, upper: 200.0}
@@ -15,13 +15,6 @@ variables:
 grid_points:
   flat_area_m2: 3
   allowable_tether_stress_pa: 3
-
-# nominal_crest is the cheap generator mode: one evaluation per cell
-# (no rated-power root-find). Rated power is nominal here; switch to
-# root_find_rated for the real study once the chain is confirmed.
-generator:
-  mode: nominal_crest
-  crest_assumed: 2.9
 
 design_defaults:
   max_tether_speed_m_s: 10.0

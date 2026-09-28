@@ -19,17 +19,12 @@ aerodynamics: # TU Delft V3
 optimization:
   # Wind speed range for power curve calculation
   wind_speeds:
-    # EXPLORATION settings for fast tuning. For final results restore
-    # cut_in: 3.0 and n_points: 23. The low-wind points (3-5 m/s) produce
-    # ~no power for these large kites yet cost the most optimiser retries,
-    # so raising cut_in removes wasted work; halving n_points ~halves the
-    # per-evaluation time at trend-level accuracy.
-    # Minimum wind speed [m/s]
-    cut_in: 3.0            # full fidelity (verification/final); scout used 7
+    # CLEANER-PASS settings (cut_in 3.0, n_points 23) for trustworthy optima.
+    cut_in: 7.0            
     # Maximum wind speed [m/s]
     cut_out: 25.0
     # Number of points to calculate (determines spacing)
-    n_points: 23           # full fidelity (verification/final); scout used 8
+    n_points: 15         # CLEANER PASS (restored from scout 15; 23 for finals)
 
   # SLSQP optimizer configuration
   optimizer:
@@ -52,8 +47,12 @@ optimization:
 
     # Maximum number of iterations per wind speed point
     max_iterations: 40
-    # Function tolerance for convergence (absolute, in watts)
-    ftol: 0.005
+    # Function tolerance for convergence (absolute, in watts). The original
+    # 0.005 W is far below the kW-scale objective, so SLSQP never met it and
+    # always ground to max_iterations; 0.5 W lets it stop when genuinely
+    # converged (much faster) with little accuracy loss. Restore 0.005 for
+    # the final full-fidelity optima.
+    ftol: 0.05               # CLEANER PASS (10x tighter than scout 0.5; not full 0.005)
     # Fallback finite-difference step size in scaled variable space.
     eps: 1.0e-2
     # Preferred finite-difference steps in physical variable units.

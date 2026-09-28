@@ -1,39 +1,26 @@
 metadata:
-  name: TEF design optimisation (S x tether stress per rated power)
+  name: TEF design optimisation (S x tether stress per generator limit)
 
 base_config_dir: config/base
 results_dir: results/design_optimisation
 
-# Fixed rated power on the outer axis; the design is optimised at each.
-# Capped at 200 kW: above this the matched soft wing exceeds both the
-# 400 m2 mass-model anchor and any realistic single LEI kite.
-rated_power_w: [50000.0, 100000.0, 150000.0, 200000.0]
+# Generator mechanical power limit on the outer axis (the QSM max_power
+# cap). The design is optimised at each; the rated cycle power emerges.
+generator_max_power_w: [40000.0, 80000.0, 150000.0, 250000.0, 400000.0]
 
-# Optimised design variables and their inclusive bounds.
-#
-# WARNING: a single absolute flat_area band cannot fit every rating -
-# the matched wing scales with rated power (~P_rated / 0.55 kW/m2 flat),
-# so 50 kW wants ~45-170 m2 while 200 kW wants ~180-670 m2. Set these
-# bounds per rating from the specific-power band (see the stage-1 tuning)
-# or run each rating separately. The values below are a placeholder only.
+# Optimised inner design variables and their inclusive bounds. A single
+# absolute area band cannot fit every generator (the matched wing grows
+# with the generator), so widen or run per-generator if an optimum rails
+# a bound. The tether-stress band mirrors the AWE-SE constant-sigma range.
 variables:
-  - {name: flat_area_m2, lower: 45.0, upper: 400.0}
+  - {name: flat_area_m2, lower: 18.0, upper: 400.0}
   - {name: allowable_tether_stress_pa, lower: 2.0e+8, upper: 6.0e+8}
 
-# Grid resolution per variable (full-factorial). The grid is the primary
-# optimiser and also the LCoE surface for plotting.
+# Full-factorial grid per variable. The grid is the primary optimiser and
+# also the LCoE surface for plotting.
 grid_points:
-  flat_area_m2: 8
+  flat_area_m2: 6
   allowable_tether_stress_pa: 5
-
-# Generator sizing to hold the target rated power.
-#   root_find_rated: solve max_power so emergent rated == target (exact)
-#   nominal_crest:   max_power = rated * crest_assumed (cheap, nominal)
-#   as_configured:   generator comes from design_defaults below
-generator:
-  mode: root_find_rated
-  crest_assumed: 2.9
-  rated_tolerance_w: 500.0
 
 # Fixed design fields shared by every case.
 design_defaults:

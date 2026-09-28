@@ -7,9 +7,22 @@ dist/
 venv/
 .venv/
 
-# Tests
-tests/*
-!tests/conftest.py
+# Config
+config/studies
+config/base_production 
+config/base_sens_mass_e1p0
+config/base_sens_mass_e1p5
+config/base_sens_stage_early
+config/base_sens_stage_mature
+config/base_sens_tlife_sf0p75
+config/base_sens_tlife_sf1p5
+
+
+# Source control
+scripts/*
+scripts/run_design_optimisation.py
+scripts/run_plots.py
+
 
 # XDSM diagrams
 XDSM/
@@ -25,3 +38,5 @@ results/*
 # LaTeX build artefacts (XDSM diagram)
 *.aux
 *.log
+
+reports/

@@ -20,6 +20,9 @@ dev = [
 plots = [
     "matplotlib",
 ]
+diagrams = [
+    "pyxdsm",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

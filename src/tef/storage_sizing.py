@@ -9,10 +9,15 @@ the pumping cycle to the cycle-average electrical power. With constant
 power per phase the cumulative imbalance E_j - P_avg * t_j is
 piecewise linear in time, so its extrema occur at phase boundaries;
 the required capacity at one operating point is the range of the
-cumulative imbalance, and the rated capacity is the maximum over all
-wind speeds and profiles times a safety factor. Fallback when phase
-durations are unavailable: the retraction (reel-in plus negative
-transition) electrical energy only — conservative, no full smoothing.
+cumulative imbalance. The rated capacity is the maximum of that
+per-wind-speed requirement times a safety factor, but the requirement
+curve is first smoothed with a rolling mean over wind speed
+(``smoothing_window``) so a single coincidental high-wind cycle -- the
+noisiest quantity, at the noisiest tail of the wind range -- cannot
+solo-set the capacity; a genuinely sustained high demand still governs.
+Fallback when phase durations are unavailable: the retraction (reel-in
+plus negative transition) electrical energy only -- conservative, no
+full smoothing.
 
 Public interface:
     update_storage_capacity_after_power_curves(...)
@@ -82,14 +87,46 @@ def required_capacity_retraction_fallback(performance: Dict[str, Any],
     return total
 
 
+def _rolling_mean_max(values: List[float], window: int) -> float:
+    """Maximum of ``values`` after a centred rolling mean of width
+    ``window``. The window shrinks at the ends (averages only the
+    available neighbours), so no point is dropped. ``window <= 1``
+    returns the plain maximum.
+
+    Sizing off the raw maximum lets a single, noisy high-wind cycle set
+    the whole capacity; smoothing first means the capacity is governed by
+    the highest *local average* — robust to a lone coincidental spike but
+    still driven up by a genuinely sustained high-wind demand.
+    """
+    if window <= 1 or len(values) <= 1:
+        return max(values)
+    half = window // 2
+    n = len(values)
+    smoothed = []
+    for i in range(n):
+        lo, hi = max(0, i - half), min(n, i + half + 1)
+        smoothed.append(sum(values[lo:hi]) / (hi - lo))
+    return max(smoothed)
+
+
 def storage_capacity_from_power_curves(power_curves: Dict[str, Any],
+                                       smoothing_window: int = 1,
                                        ) -> Tuple[Optional[float], str]:
-    """Maximum required storage energy [Wh] over all profiles and wind
-    speeds, and the method actually used ('unavailable' when no
-    operating point provides usable energy data)."""
-    maxRequired = None
+    """Required storage energy [Wh] and the method actually used
+    ('unavailable' when no operating point provides usable energy data).
+
+    Per profile, the per-wind-speed required capacity is smoothed with a
+    ``smoothing_window``-wide rolling mean (see :func:`_rolling_mean_max`)
+    and its maximum taken; the rated capacity is the maximum over
+    profiles. With ``smoothing_window <= 1`` this reduces to the plain
+    maximum over all profiles and wind speeds.
+    """
     method = 'cycle_energy_imbalance'
+    perProfileMax = None
     for curve in power_curves.get('power_curves', []):
+        # Collect (wind_speed, required_J) for the successful points of
+        # this profile, so the rolling mean runs along wind speed.
+        profilePoints = []
         for point in curve.get('wind_speed_data', []):
             if not point.get('successful', False):
                 continue
@@ -100,11 +137,17 @@ def storage_capacity_from_power_curves(power_curves: Dict[str, Any],
                 if required is None:
                     continue
                 method = 'retraction_energy_fallback'
-            if maxRequired is None or required > maxRequired:
-                maxRequired = required
-    if maxRequired is None:
+            profilePoints.append((point.get('wind_speed', 0.0), required))
+        if not profilePoints:
+            continue
+        profilePoints.sort(key=lambda ws_req: ws_req[0])
+        profileMax = _rolling_mean_max(
+            [req for _, req in profilePoints], smoothing_window)
+        if perProfileMax is None or profileMax > perProfileMax:
+            perProfileMax = profileMax
+    if perProfileMax is None:
         return None, 'unavailable'
-    return maxRequired / J_PER_WH, method
+    return perProfileMax / J_PER_WH, method
 
 
 def update_storage_capacity_after_power_curves(
@@ -131,7 +174,8 @@ def update_storage_capacity_after_power_curves(
 
     if settings.mode == 'from_power_curves_if_available':
         powerCurves = load_yaml(power_curves_path)
-        capacityWh, method = storage_capacity_from_power_curves(powerCurves)
+        capacityWh, method = storage_capacity_from_power_curves(
+            powerCurves, settings.smoothing_window)
         if capacityWh is not None:
             capacityWh *= settings.safety_factor
 
@@ -162,5 +206,6 @@ def update_storage_capacity_after_power_curves(
         'method': method,
         'capacity_wh': capacityWh,
         'safety_factor': settings.safety_factor,
+        'smoothing_window': settings.smoothing_window,
         'updated_storage_entries': updatedEntries,
     }

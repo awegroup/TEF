@@ -28,6 +28,7 @@ from typing import Optional
 
 from tef.io import base_config_dir as default_base_config_dir
 from tef.io import load_yaml, write_yaml
+from tef.power_accounting import CasePowers, full_cycle_peak_mechanical_power
 from tef.storage_sizing import update_storage_capacity_after_power_curves
 from tef.system_scaling import (
     DesignVariables,
@@ -168,6 +169,9 @@ class TefCaseResult:
     # Emergent rated (plateau) power from the power curve; the generator
     # max_power is an input, this is what the curve actually rates at.
     emergent_rated_power_w: float
+    # Full-cycle peak mechanical power (sizes the generator); None when the
+    # QSM time histories are unavailable.
+    peak_mechanical_power_w: Optional[float]
     lcoe_eur_per_mwh: float
     icc_eur: float
     omc_eur_per_year: float
@@ -191,12 +195,15 @@ def write_case_economic_settings(template_path: Path,
                                  wind_resource_path: Path,
                                  power_curves_path: Path,
                                  aep_results_path: Path,
-                                 output_path: Path) -> Path:
+                                 output_path: Path,
+                                 peak_mechanical_power_override_w=None) -> Path:
     """Generate the case-local economic_settings.yml from the template.
 
-    Only the file references are rewritten; every economic assumption
-    (business, operations, replacements, system_extras) is taken from
-    the template unchanged.
+    The file references are rewritten and, when supplied, the full-cycle
+    peak mechanical power is injected as
+    ``system_extras.peak_mechanical_power_override`` so EcoMo sizes the
+    generator on it. Every other economic assumption (business, operations,
+    replacements, the rest of system_extras) comes from the template.
     """
     settings = load_yaml(template_path)
     caseDir = Path(case_dir)
@@ -210,6 +217,9 @@ def write_case_economic_settings(template_path: Path,
     }
     settings.setdefault('wind_resource', {})['resource_file'] = (
         _relative_to_case(wind_resource_path, caseDir))
+    if peak_mechanical_power_override_w is not None:
+        settings.setdefault('system_extras', {})[
+            'peak_mechanical_power_override'] = peak_mechanical_power_override_w
 
     write_yaml(settings, output_path)
     return Path(output_path)
@@ -267,7 +277,7 @@ class TefCaseRunner:
 
     def _write_tef_summary(self, quantities, storage_summary,
                            aep_mwh: float, capacity_factor: float,
-                           metrics: dict) -> None:
+                           metrics: dict, case_powers) -> None:
         write_yaml({
             'design': {
                 'flat_area_m2': quantities.flat_area_m2,
@@ -276,6 +286,16 @@ class TefCaseRunner:
             },
             'scaling': scaling_summary_section(quantities),
             'storage_sizing': storage_summary,
+            'power_accounting': {
+                'generator_power_limit_mechanical_w':
+                    case_powers.generator_power_limit_mechanical_w,
+                'peak_mechanical_power_w':
+                    case_powers.peak_mechanical_power_w,
+                'rated_cycle_electrical_power_w':
+                    case_powers.rated_cycle_electrical_power_w,
+                'crest_peak_over_rated': case_powers.crest_peak_over_rated,
+                'crest_limit_over_rated': case_powers.crest_limit_over_rated,
+            },
             'performance': {
                 'aep_mwh': aep_mwh,
                 'capacity_factor': capacity_factor,
@@ -323,6 +343,16 @@ class TefCaseRunner:
             output_path=paths.aep_results,
         ).run()
 
+        # The three distinct powers: the configured limit, the full-cycle
+        # peak (sizes the generator), and the rated cycle electrical power.
+        casePowers = CasePowers(
+            generator_power_limit_mechanical_w=quantities.generator_max_power_w,
+            peak_mechanical_power_w=full_cycle_peak_mechanical_power(
+                paths.power_curves),
+            rated_cycle_electrical_power_w=load_yaml(
+                paths.aep_results)['power_summary']['max_rated_power_w'],
+        )
+
         storageSummary = None
         if self.runStorageSizing:
             scalingSettings = ScalingSettings.load(
@@ -342,6 +372,7 @@ class TefCaseRunner:
             power_curves_path=paths.power_curves,
             aep_results_path=paths.aep_results,
             output_path=paths.economic_settings,
+            peak_mechanical_power_override_w=casePowers.peak_mechanical_power_w,
         )
 
         eco = EcomoRunner(
@@ -358,7 +389,7 @@ class TefCaseRunner:
         emergentRatedPowerW = aepData['power_summary']['max_rated_power_w']
 
         self._write_tef_summary(quantities, storageSummary, aepMwh,
-                                capacityFactor, metrics)
+                                capacityFactor, metrics, casePowers)
 
         return TefCaseResult(
             case_name=self.case_name,
@@ -377,6 +408,7 @@ class TefCaseRunner:
             aep_mwh=aepMwh,
             capacity_factor=capacityFactor,
             emergent_rated_power_w=emergentRatedPowerW,
+            peak_mechanical_power_w=casePowers.peak_mechanical_power_w,
             lcoe_eur_per_mwh=metrics['LCoE'],
             icc_eur=metrics['ICC'],
             omc_eur_per_year=metrics['OMC'],

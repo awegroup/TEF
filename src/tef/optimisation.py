@@ -164,15 +164,27 @@ def grid_optimise(objective: Objective, design_space: DesignSpace,
     bestVector: Optional[np.ndarray] = None
     bestValue: Optional[float] = None
 
-    for vector in design_space.grid(points):
+    # Materialise the grid so the total cell count is known for progress.
+    grid = list(design_space.grid(points))
+    total = len(grid)
+    names = [var.name for var in design_space.variables]
+
+    for index, vector in enumerate(grid, start=1):
+        label = "  ".join(f"{name}={value:g}"
+                          for name, value in zip(names, vector))
+        print(f"\n{'=' * 64}\n [cell {index}/{total}]  {label}\n{'=' * 64}",
+              flush=True)
         try:
             value = float(objective(vector))
         except Exception as exc:  # noqa: BLE001 - a study records failures
             if not continue_on_failure:
                 raise
             evaluations.append(Evaluation(tuple(vector), None, False, str(exc)))
+            print(f" [cell {index}/{total}] FAILED: {exc}", flush=True)
             continue
         evaluations.append(Evaluation(tuple(vector), value))
+        print(f" [cell {index}/{total}] done: LCoE = {value:.1f} EUR/MWh",
+              flush=True)
         if np.isfinite(value) and (bestValue is None or value < bestValue):
             bestValue = value
             bestVector = vector

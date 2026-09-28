@@ -1,0 +1,31 @@
+metadata:
+  name: Generator sweep - 80 kW (per-generator, parallel-safe)
+
+base_config_dir: config/base
+# Own results_dir so parallel runs do not share a _scratch dir.
+results_dir: results/gen_sweep/080kw
+
+generator_max_power_w: [80000.0]
+
+# Wing-area band matched to this generator (~1.8 m2/kW from the 40 kW R1
+# anchor), capped at the 400 m2 mass-model ceiling. Widen if the optimum
+# rails a bound (except the 400 m2 upper cap).
+variables:
+  - {name: flat_area_m2, lower: 90.0, upper: 200.0}
+  - {name: allowable_tether_stress_pa, lower: 2.0e+8, upper: 6.0e+8}
+
+grid_points:
+  flat_area_m2: 5
+  allowable_tether_stress_pa: 5
+
+design_defaults:
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Grid only (flat optima + ~8% QSM noise make refinement counter-productive).
+refine:
+  method: none
+
+execution:
+  run_storage_sizing: true
+  overwrite: true

@@ -83,7 +83,7 @@ class ReferenceSettings:
     tether_diameter_m: float = 0.006
     max_tether_force_n: float = 8200.0
     tether_length_m: float = 500.0
-    tether_density_kg_m3: float = 724.0
+    tether_density_kg_m3: float = 970.0
     generator_max_power_w: float = 40000.0
     max_tether_speed_m_s: float = 10.0
     generator_efficiency: float = 1.0
@@ -164,6 +164,11 @@ class StorageSizingSettings:
     reference_generator_max_power_w: float = 40000.0
     selected_storage_type: str = 'capacitor_bank'
     update_all_storage_entries: bool = True
+    # Rolling-mean window (in wind-speed points) applied to the per-cycle
+    # required-capacity curve before taking its maximum, so a single
+    # coincidental high-wind cycle cannot solo-set the capacity. 1 = no
+    # smoothing (raw max); 3 = average each point with its two neighbours.
+    smoothing_window: int = 3
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,40 @@
+metadata:
+  name: R1 tuning (40 kW generator) - locate the interior optimum
+
+base_config_dir: config/base
+results_dir: results/r1_40kw_tuning
+
+# R1: a single generator limit (40 kW, the well-understood V3 system) to
+# tune the inner design-variable bands before the full generator sweep.
+generator_max_power_w: [40000.0]
+
+# Inner design variables. The wing-area band is centred on the R1 optimum
+# (~68 m2): the earlier run showed S=25 is far off-optimum and S >> 100 on
+# a 40 kW generator is badly curtailed and thrashes the QSM cycle
+# optimiser, so [45, 100] focuses the resolution where the minimum sits.
+# The tether-stress band spans the master-curve range; below ~0.24 GPa the
+# bending life is clamp-limited (pw_limit), and R1 found the optimum at
+# 0.3 GPa (interior).
+variables:
+  - {name: flat_area_m2, lower: 45.0, upper: 100.0}
+  - {name: allowable_tether_stress_pa, lower: 2.0e+8, upper: 6.0e+8}
+
+# Full-factorial grid: 5 x 5 = 25 cases (the grid gives the LCoE surface).
+grid_points:
+  flat_area_m2: 5
+  allowable_tether_stress_pa: 5
+
+design_defaults:
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Grid only. The S minimum is flat (LCoE varies <2% over ~68-90 m2), so
+# Nelder-Mead refinement wanders that valley for hours to terminate for
+# negligible gain; the grid node is close enough and gives the surface.
+# Use grid-only for the full sweep too.
+refine:
+  method: none
+
+execution:
+  run_storage_sizing: true
+  overwrite: true

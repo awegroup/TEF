@@ -1,5 +1,5 @@
 """Run the design-optimisation study: minimise LCoE over the design
-space at each fixed rated power."""
+space at each fixed generator power limit."""
 
 import argparse
 from pathlib import Path
@@ -17,7 +17,7 @@ def main() -> None:
     args = parser.parse_args()
 
     frame = run_design_optimisation(args.study)
-    print("\nOptimum by rated power:")
+    print("\nOptimum by generator power:")
     print(frame.to_string(index=False))
 
 
