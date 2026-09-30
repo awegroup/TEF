@@ -1,0 +1,91 @@
+metadata:
+  name: TU Delft V3.25
+  description: Base system for TEF scaling
+  note: EcoMo-compatible V3 system file used as the scaling reference
+  awesIO_version: 0.1.0
+  schema: system_schema.yml
+
+assembly:
+  connectivity_matrix:
+    - [K1, T1]
+    - [T2, G1]
+
+components:
+  kites:
+    - name: TU Delft V3.25
+      type: soft_kite_kcu
+      version: 1.0
+      joints:
+        kcu_joint:
+          id: K1
+      wing:
+        name: TU Delft V3.25
+        type: LEI_soft_kite
+        version: 1.0
+        structure:
+          flat_wing_area: 25.0 # m2
+          projected_surface_area: 19.75 # m2
+          mass: 10.6 # kg, wing and bridle mass lumped together
+      bridle:
+        name: TU Delft V3.25 Bridle
+        type: LEI_soft_kite_bridle
+        version: 1.0
+        structure:
+          mass: 0.0
+      control_system:
+        name: TU Delft V3.25 KCU
+        type: kite_control_unit
+        version: 1.0
+        structure:
+          mass: 8.4 # kg
+
+  tethers:
+    - name: Kitepower tether
+      type: non_conductive_tether
+      version: 1.0
+      joints:
+        upper_tether_joint:
+          id: T1
+        lower_tether_joint:
+          id: T2
+      structure:
+        length: 500.0
+        diameter: 0.006
+        density: 960.0
+        max_tether_force: 8200.0 # N
+        conductive: false
+        material:
+          # allowable_stress is the working stress that sizes the tether
+          # diameter (design variable, V3-equivalent default).
+          # breaking_strength is the rope-level ultimate strength of the
+          # Dyneema fibre: EcoMo reads it as the maximum tether stress
+          # (life-curve cap and winch drum wall sizing), so it must stay
+          # the material property, not the sizing allowable.
+          allowable_stress: 341194910.6806645 # Pa
+          breaking_strength: 1500000000.0 # Pa (1.5 GPa)
+
+  ground_station:
+    name: Kitepower Ground Station
+    type: pumping_ground_gen_station
+    version: 1.0
+    joints:
+      drum_joint:
+        id: G1
+    structure:
+      mass: 0.0
+    drums:
+      - type: electric_winch
+        max_tether_speed: 10.0
+    generators:
+      - type: permanent_magnet_synchronous
+        max_power: 40000.0 # W
+        efficiency: 0.85
+    storages:
+      - name: ultracapacitor bank
+        type: capacitor_bank
+        capacity: 1137.7 # Wh
+        efficiency: 0.95
+      - name: battery bank
+        type: battery_bank
+        capacity: 1137.7 # Wh
+        efficiency: 0.95

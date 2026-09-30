@@ -1,0 +1,51 @@
+metadata:
+  name: Kite comparison V3 / V4 / V5 - grid optimisation at 100 kW generator
+
+results_dir: results/kite_comparison_100kw
+
+# Reel-out aerodynamics come from each kite's base QSM settings.
+# V3 and V4 use the thesis LEI wing mass model; V5 is a single-skin wing:
+# wing + bridle 10 kg at 60 m2, scaled linearly with area (constant areal
+# density). KCU and sensor mass models are the same for all kites, as are
+# the cost inputs and canopy life (mid maturity).
+kites:
+  V3: {base_config_dir: config/base}                    # CL 0.63, CD 0.14
+  V4: {base_config_dir: config/base_aero_cl0p9_cd0p17}  # CL 0.90, CD 0.17
+  V5:
+    base_config_dir: config/base_aero_cl1p2_cd0p27      # CL 1.20, CD 0.27
+    scaling_override:
+      wing_mass_model:
+        type: power_law
+        power_law_reference_area_m2: 60.0
+        power_law_reference_mass_kg: 10.0
+        power_law_exponent: 1.0
+
+# Shared QSM wind-speed range: cut-in 4 m/s, cut-out 20 m/s (2.5 % of the
+# time lies above 20 m/s at 200 m); 14 points keeps ~1.23 m/s spacing.
+qsm_override:
+  optimization:
+    wind_speeds:
+      cut_in: 4.0
+      cut_out: 20.0
+      n_points: 14
+
+case_options:
+  # No production above the cut-out (AWESPA's AEP would otherwise hold the
+  # cut-out power for every higher wind speed).
+  zero_power_beyond_cut_out: true
+  # Drivetrain sized on at most 1.5 x the generator limit (150 kW).
+  peak_power_cap_factor: 1.5
+
+design_defaults:
+  generator_max_power_w: 100000.0
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Thesis optimum at 110 kW was ~140 m2 (V3); higher-lift kites size smaller.
+grid:
+  flat_area_m2: [45.0, 70.0, 95.0, 120.0, 145.0, 170.0, 195.0]
+  allowable_tether_stress_pa: [2.0e+8, 2.5e+8, 3.0e+8]
+
+execution:
+  workers: 10
+  reuse_cases: true

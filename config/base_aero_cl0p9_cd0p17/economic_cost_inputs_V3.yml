@@ -1,0 +1,142 @@
+metadata:
+  name: TU Delft V3.25 Cost Inputs
+  description: Economic cost model parameters for the TU Delft V3.25 soft-kite GG system
+  note: Soft-wing cost model. Prices in EUR; power-specific prices in EUR/kW, energy-specific
+    in EUR/kWh, mass-specific in EUR/kg, area-specific in EUR/m2.
+  awesIO_version: 0.1.0
+  schema: economic_schema.yml
+costs:
+  kite:
+    structure:
+      soft:
+        # Two-term soft-wing cost model (see COST_MODEL_REFERENCE.md).
+        material_cost_ref: 3220.0        # [EUR] material cost at reference area
+        reference_area: 60.0             # [m2] reference area
+        material_scaling_exponent: 1.14  # [-]  material scaling exponent
+        labour_cost_coefficient: 13.0    # [EUR/m2] per-area labour
+        # canopy_lifetime_flight_hours comes from development_stage
+        canopy_load_exponent: 0.0
+        # per_cycle_penalty: 1.0e-6      # optional per-cycle canopy wear
+    onboard_generator:
+      price_power: 120.0
+    onboard_battery:
+      price_energy: 150.0
+    avionics:
+      # Scaled KCU model: cost_fixed + cost_var_ref*(S/S_ref)^scaling_exponent
+      cost: 30000.0           # [EUR] fallback fixed cost
+      cost_fixed: 2400.0      # [EUR] fixed electronics
+      cost_var_ref: 5600.0    # [EUR] variable actuators at reference area
+      reference_area: 60.0    # [m2] reference area
+      scaling_exponent: 1.0   # [-]
+      lifetime_years: 5.0     # [yr]
+    sensor:
+      cost: 9000.0            # [EUR] sensor suite CAPEX
+      lifetime_years: 5.0     # [yr] service life (same as the KCU)
+  tether:
+    price_mass: 80
+    conductive_manufacturing_factor: 2.5
+    creep_life_coefficients:
+    - -2.4
+    - 8.3
+    - -11.2
+    - 5.2
+    coating_mass_fraction: 0.1
+    fibre_area_fraction: 0.85
+    # Legacy a1/a2 bending fatigue model (fallback). a1 is interpolated
+    # log-linearly in the winch D/d ratio.
+    bending_life_a1_table:
+      drum_to_tether_ratio: [10, 20, 30, 100]
+      a1: [5.4, 5.8, 6.1, 6.5]
+    bending_life_a2: 2.6
+    n_bends: 2
+    # HMPE bearing-pressure master curve (preferred bending model when set),
+    # used for the TEF optimisation. See COST_MODEL_REFERENCE.md.
+    master_curve:
+      coefficient: 5000000.0
+      exponent: 2.0
+      bearing_pressure_coeff: 1.0     # k_pw
+      pw_limit_mpa: 8.0               # low-pressure clamp
+      design_safety_factor: 3.0       # retire before failure
+    max_stress: 1500000000
+    # Empirical operational (non-fatigue) tether life. Opt-in via
+    # operational_life_enabled; when off, bending/creep fatigue governs.
+    # TODO: operational_life_flight_hours = 250 h is a placeholder pending
+    #       RIGO/Kitepower field data; update when received.
+    operational_life_enabled: false        # optimisation: bending master curve governs
+    # operational_life_flight_hours comes from development_stage (unused while disabled)
+  ground_station:
+    # Component lifetime_years drives a replacement OPEX only when shorter
+    # than the project (life > project = no replacement).
+    winch:
+      material: steel
+      drum_to_tether_diameter_ratio: 30.0
+      safety_factor_diameter: 1.1
+      safety_factor_length: 1.1
+      lifetime_years: 20.0
+      materials:
+        aluminum:
+          price_mass: 10.0
+          density: 2700.0
+          max_stress: 300000000.0
+        steel:
+          price_mass: 7.0
+          density: 7850.0
+          max_stress: 500000000.0
+    drivetrain: electric
+    gearbox:
+      cost_model: power_based
+      lifetime_years: 20.0
+      power_based:
+        price_power: 70.0
+      mass_based:
+        price_mass: 12.9
+        mass_coefficient: 113.0
+        mass_exponent: 0.71
+    generator:
+      cost_model: power_based
+      lifetime_years: 20.0
+      power_based:
+        price_power: 120.0
+      mass_based:
+        price_mass: 12.4
+        mass_slope: 2.3
+        mass_offset: 3400.0
+    electrical_storage: ultracapacitor
+    ultracapacitor:
+      price_energy: 30000.0
+      cycle_life: 1000000.0
+    battery:
+      price_energy: 200.0
+      cycle_life: 10000.0
+    power_converter:
+      price_power: 100.0
+      lifetime_years: 20.0
+    pump_motor:
+      price_power: 100.0
+      maintenance_price_power: 75.0
+    hydraulic_accumulator:
+      price_energy: 30000.0
+      maintenance_price_energy: 1200.0
+    hydraulic_motor:
+      price_power: 200.0
+      maintenance_price_power: 80.0
+    launch_land:
+      price_area: 165.0      # [EUR/m2]
+      lifetime_years: 20.0   # service life (240 months); null = no replacement
+  balance_of_system:
+    site_preparation:
+      price_power: 40.0
+    foundation:
+      price_power: 55.0
+    installation:
+      price_power: 40.0
+    operations_maintenance:
+      price_power: 60.0        # [EUR/kW/yr] per-kW O&M overhead (size-dependent)
+    decommissioning:
+      installation_fraction: 0.5
+  balance_of_plant: {}
+market:
+  electricity_price:
+    intercept: 45.0
+    wind_speed_slope: -1.2
+  subsidy: 150.0

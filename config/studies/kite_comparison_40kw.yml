@@ -1,0 +1,37 @@
+metadata:
+  name: Kite comparison V3 / V4 / V5 - grid optimisation at 40 kW generator
+
+results_dir: results/kite_comparison_40kw
+
+# Each kite differs only in its reel-out aerodynamics (base QSM settings);
+# mass and scaling models are the V3-based ones for all three.
+kites:
+  V3: {base_config_dir: config/base}                    # CL 0.63, CD 0.14
+  V4: {base_config_dir: config/base_aero_cl0p9_cd0p17}  # CL 0.90, CD 0.17
+  V5: {base_config_dir: config/base_aero_cl1p2_cd0p27}  # CL 1.20, CD 0.27
+
+# Applied to every kite's QSM settings so all are evaluated identically.
+# Cut-in lowered from 7 to 4 m/s (21.5 % of the time at 200 m lies in
+# 4-7 m/s); 18 points keeps the previous ~1.25 m/s spacing.
+qsm_override:
+  optimization:
+    wind_speeds:
+      cut_in: 4.0
+      cut_out: 25.0
+      n_points: 18
+
+# Fixed for all cases: the 40 kW generator (mechanical power limit).
+design_defaults:
+  generator_max_power_w: 40000.0
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# 7 x 3 grid; includes the thesis reference node (75 m2, 0.25 GPa).
+grid:
+  flat_area_m2: [30.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0]
+  allowable_tether_stress_pa: [2.0e+8, 2.5e+8, 3.0e+8]
+
+execution:
+  workers: 10
+  # Skip cases that already finished without error.
+  reuse_cases: true

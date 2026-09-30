@@ -1,0 +1,54 @@
+metadata:
+  name: Aero polar grid - polar efficiency x fixed CL, wing area optimised per cell (40 kW)
+
+base_config_dir: config/base
+results_dir: results/aero_polar_grid_opt_40kw
+
+# Design: 40 kW generator, tether stress fixed at 0.25 GPa (optimal or flat
+# in the thesis and both kite studies); V3 (LEI) mass model. The wing area
+# is optimised per cell over the grid below (flat_area_m2 here is unused).
+design:
+  flat_area_m2: 75.0
+  allowable_tether_stress_pa: 2.5e+8
+  generator_max_power_w: 40000.0
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Reel-out polar CD = CL_d/(2E) * (1 + (CL/CL_d)^2): E = L/D_max at the
+# design lift coefficient CL_d; a better polar lowers parasitic and induced
+# drag together. Each case flies one fixed CL at all wind speeds.
+# Reel-in: CL 0.35 on the same polar (L/D 3.3 at E 4.5 = the V3 base).
+polar:
+  cl_design: 0.8
+  ld_max: [4.5, 6.0, 7.5, 9.0, 10.5, 12.0]
+  cl: [0.4, 0.6, 0.8, 1.0, 1.2]
+
+reel_in:
+  cl: 0.35
+
+# Wing area grid evaluated for every (L/D_max, CL) cell.
+grid:
+  flat_area_m2: [30.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0]
+
+# Placed on the map at their implied L/D_max (not run).
+reference_kites:
+  V3: {cl: 0.63, cd: 0.14}
+  V4: {cl: 0.90, cd: 0.17}
+  V5: {cl: 1.20, cd: 0.27}
+
+# Current study rules: 4-20 m/s, no production above the cut-out,
+# drivetrain sized on at most 1.5 x the generator limit.
+qsm_override:
+  optimization:
+    wind_speeds:
+      cut_in: 4.0
+      cut_out: 20.0
+      n_points: 14
+
+case_options:
+  zero_power_beyond_cut_out: true
+  peak_power_cap_factor: 1.5
+
+execution:
+  workers: 10
+  reuse_cases: true

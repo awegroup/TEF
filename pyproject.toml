@@ -11,6 +11,8 @@ dependencies = [
     "numpy",
     "pyyaml",
     "pandas",
+    "awespa @ git+https://github.com/awegroup/AWESPA.git@ca80525",
+    "ecomo @ git+https://github.com/awegroup/EcoMo.git@d7744d1",
 ]
 
 [project.optional-dependencies]

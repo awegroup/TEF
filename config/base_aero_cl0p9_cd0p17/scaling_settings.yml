@@ -1,0 +1,79 @@
+metadata:
+  name: TEF soft wing scaling settings
+  description: System scaling settings for the TEF soft wing framework
+
+reference:
+  flat_area_m2: 25.0
+  projected_area_m2: 19.75
+  wing_and_bridle_mass_kg: 10.6
+  kcu_mass_kg: 8.4
+  tether_diameter_m: 0.006
+  max_tether_force_n: 8200.0
+  tether_length_m: 500.0
+  tether_density_kg_m3: 960.0
+  generator_max_power_w: 40000.0
+  max_tether_speed_m_s: 10.0
+  generator_efficiency: 1.0
+
+geometry:
+  projected_to_flat_area_ratio: 0.79
+
+wing_mass_model:
+  type: tabulated_log_interpolation # or power_law
+  anchor_flat_areas_m2: [25.0, 50.0, 100.0, 200.0, 400.0]
+  anchor_masses_kg: [10.60, 23.97, 55.79, 133.75, 330.21]
+  power_law_reference_area_m2: 25.0
+  power_law_reference_mass_kg: 10.60
+  power_law_exponent: 1.22
+  allow_extrapolation: false
+
+kcu_mass_model:
+  type: component_scaling
+  reference_area_m2: 60.0
+  reference_mass_kg: 26.2
+  fixed_fraction: 0.01
+  linear_fraction: 0.53
+  superlinear_fraction: 0.45
+  superlinear_exponent: 1.5
+  calibration_mode: raw_thesis # or match_v3_at_25
+
+sensor_mass_model:
+  type: constant
+  mass_kg: 3.4
+  include_in_control_system_mass: true
+
+tether_sizing:
+  fibre_area_fraction: 0.85
+  default_allowable_stress_pa: 341194910.6806645
+  # Rope-level ultimate strength written to material.breaking_strength
+  # (EcoMo life-curve cap + winch drum sizing); distinct from the
+  # allowable working stress that sizes the diameter.
+  material_breaking_strength_pa: 1500000000.0 # 1.5 GPa
+  write_allowable_stress_to_material: true
+  write_breaking_strength_compatibility_field: true
+
+generator_sizing:
+  default_mode: specific_power
+  default_specific_power_w_m2_projected: 2025.3164556962024 # 40000 / 19.75
+  allow_explicit_max_power: true
+  allow_rated_power_and_crest_factor: true
+
+drum:
+  max_tether_speed_m_s: 10.0
+  keep_constant_with_scale: true
+
+storage_sizing:
+  # cycle_energy_imbalance: size from the cumulative electrical energy
+  # imbalance over one pumping cycle relative to the cycle-average power
+  # (full smoothing buffer), maximised over wind speeds and profiles.
+  mode: from_power_curves_if_available
+  method: cycle_energy_imbalance
+  safety_factor: 1.0
+  fallback_mode: scale_with_generator_power
+  reference_capacity_wh: 1137.7
+  reference_generator_max_power_w: 40000.0
+  selected_storage_type: capacitor_bank
+  update_all_storage_entries: true
+
+validation:
+  validate_awesio_system: true

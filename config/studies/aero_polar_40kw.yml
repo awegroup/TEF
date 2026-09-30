@@ -1,0 +1,31 @@
+metadata:
+  name: Aero polar study (Stage A) - 40 kW reference design
+
+base_config_dir: config/base
+results_dir: results/aero_polar_40kw
+
+# Fixed design: the thesis 40 kW reference optimum (Table 7.2).
+design:
+  flat_area_m2: 75.0
+  allowable_tether_stress_pa: 2.5e+8
+  generator_max_power_w: 40000.0
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+# Parabolic reel-out polar CD = CD0 + k CL^2, capped at CL_max.
+# k is anchored on the V3 reel-out pair taken as the L/D_max point of the
+# reference polar (k = CD/2 / CL^2 = 0.176); CD0 follows from each L/D_max.
+# The (L/D_max = 4.5, CL_max = 0.63) polar is the baseline V3 case.
+# Reel-in coefficients stay at the base QSM settings.
+polar:
+  reference: {cl: 0.63, cd: 0.14}
+  ld_max: [4.5, 5.5, 6.5]
+  cl_max: [0.63, 0.9, 1.2]
+  # Operating points per polar: from the best-L/D CL up to CL_max.
+  max_operating_points: 4
+  min_cl_spacing: 0.1
+
+execution:
+  workers: 10
+  # Skip operating points whose power curves already exist.
+  reuse_operating_points: true

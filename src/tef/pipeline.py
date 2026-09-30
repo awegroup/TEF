@@ -20,11 +20,12 @@ Public interface:
     evaluate_design(design, work_dir)   # optimisation entry point
 """
 
+import copy
 import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from tef.io import base_config_dir as default_base_config_dir
 from tef.io import load_yaml, write_yaml
@@ -233,13 +234,57 @@ def _deep_update(target: dict, override: dict) -> None:
             target[key] = value
 
 
+def append_zero_power_point(power_curves_path: Path,
+                            offset_m_s: float = 0.01) -> None:
+    """Append an unsuccessful zero-power entry just past the last wind
+    speed of every profile.
+
+    AWESPA's AEP interpolates the power curve onto the wind-resource bins
+    with ``np.interp``, which holds the end values constant outside the
+    curve; without this point every wind above the cut-out would be
+    credited with the cut-out power. EcoMo and the storage sizing skip
+    unsuccessful entries, so only the AEP sees the zero.
+    """
+    data = load_yaml(power_curves_path)
+    windSpeed = float(data['reference_wind_speeds'][-1]) + offset_m_s
+    data['reference_wind_speeds'].append(windSpeed)
+    zero = {'average_cycle_power': 0.0}
+    for profile in data['power_curves']:
+        profile['wind_speed_data'].append({
+            'wind_speed': windSpeed,
+            'successful': False,
+            'performance': {'power': dict(zero),
+                            'electrical_power': dict(zero),
+                            'timing': {}},
+        })
+    write_yaml(data, power_curves_path)
+
+
 class TefCaseRunner:
     """Runs one complete TEF case against a prepared inputs directory."""
 
     def __init__(self, case_dir: Path, design: DesignVariables,
                  inputs_dir: Path, validate: bool = True,
                  run_storage_sizing: bool = True, overwrite: bool = False,
-                 verbose: bool = True):
+                 verbose: bool = True,
+                 power_curve_builder: Optional[
+                     Callable[[Path, Path, Path], None]] = None,
+                 zero_power_beyond_cut_out: bool = False,
+                 peak_power_cap_factor: Optional[float] = None,
+                 qsm_override: Optional[dict] = None):
+        """``power_curve_builder(system_path, qsm_settings_path,
+        output_power_curves_path)`` replaces the single AWESPA power run
+        when given (e.g. an envelope over several aerodynamic operating
+        points); it must write ``power_curves.yml`` and its ``.npz``.
+
+        ``zero_power_beyond_cut_out`` appends a zero-power point just past
+        the last computed wind speed, so the AEP (which holds the end
+        values of the curve outside its range) produces nothing above the
+        cut-out. ``peak_power_cap_factor`` caps the peak mechanical power
+        that sizes the drivetrain at that multiple of the generator limit;
+        the uncapped peak is still reported. ``qsm_override`` is merged
+        into the study's QSM settings for this case only (e.g. its reel-out
+        aerodynamic coefficients)."""
         self.paths = CasePaths(Path(case_dir))
         self.design = design
         self.inputs = StudyInputs(Path(inputs_dir))
@@ -247,6 +292,10 @@ class TefCaseRunner:
         self.runStorageSizing = run_storage_sizing
         self.overwrite = overwrite
         self.verbose = verbose
+        self.powerCurveBuilder = power_curve_builder
+        self.zeroPowerBeyondCutOut = zero_power_beyond_cut_out
+        self.peakPowerCapFactor = peak_power_cap_factor
+        self.qsmOverride = qsm_override or {}
 
     @property
     def case_name(self) -> str:
@@ -267,17 +316,21 @@ class TefCaseRunner:
         write_yaml({'design_variables': self.design.to_dict()},
                    self.paths.design)
 
-        if self.design.minimum_tether_force_n is None:
+        override = copy.deepcopy(self.qsmOverride)
+        if self.design.minimum_tether_force_n is not None:
+            _deep_update(override, {'cycle': {
+                'minimum_tether_force': self.design.minimum_tether_force_n}})
+        if not override:
             return self.inputs.qsm_settings
         qsmSettings = load_yaml(self.inputs.qsm_settings)
-        _deep_update(qsmSettings, {'cycle': {
-            'minimum_tether_force': self.design.minimum_tether_force_n}})
+        _deep_update(qsmSettings, override)
         write_yaml(qsmSettings, self.paths.qsm_settings_override)
         return self.paths.qsm_settings_override
 
     def _write_tef_summary(self, quantities, storage_summary,
                            aep_mwh: float, capacity_factor: float,
-                           metrics: dict, case_powers) -> None:
+                           metrics: dict, case_powers,
+                           sizing_peak_power_w=None) -> None:
         write_yaml({
             'design': {
                 'flat_area_m2': quantities.flat_area_m2,
@@ -291,6 +344,7 @@ class TefCaseRunner:
                     case_powers.generator_power_limit_mechanical_w,
                 'peak_mechanical_power_w':
                     case_powers.peak_mechanical_power_w,
+                'peak_mechanical_power_sizing_w': sizing_peak_power_w,
                 'rated_cycle_electrical_power_w':
                     case_powers.rated_cycle_electrical_power_w,
                 'crest_peak_over_rated': case_powers.crest_peak_over_rated,
@@ -328,14 +382,20 @@ class TefCaseRunner:
             validate=self.validate,
         )
 
-        AwespaPowerRunner(
-            system_path=paths.system,
-            qsm_settings_path=qsmSettingsPath,
-            wind_resource_path=self.inputs.wind_resource,
-            output_power_curves_path=paths.power_curves,
-            validate=self.validate,
-            verbose=self.verbose,
-        ).run()
+        if self.powerCurveBuilder is not None:
+            self.powerCurveBuilder(paths.system, qsmSettingsPath,
+                                   paths.power_curves)
+        else:
+            AwespaPowerRunner(
+                system_path=paths.system,
+                qsm_settings_path=qsmSettingsPath,
+                wind_resource_path=self.inputs.wind_resource,
+                output_power_curves_path=paths.power_curves,
+                validate=self.validate,
+                verbose=self.verbose,
+            ).run()
+        if self.zeroPowerBeyondCutOut:
+            append_zero_power_point(paths.power_curves)
 
         AepRunner(
             power_curve_path=paths.power_curves,
@@ -352,6 +412,14 @@ class TefCaseRunner:
             rated_cycle_electrical_power_w=load_yaml(
                 paths.aep_results)['power_summary']['max_rated_power_w'],
         )
+
+        # Drivetrain sizing peak: optionally capped at a multiple of the
+        # generator limit (a controller that holds transitions within the
+        # generator's overload rating).
+        sizingPeakW = casePowers.peak_mechanical_power_w
+        if self.peakPowerCapFactor is not None and sizingPeakW is not None:
+            sizingPeakW = min(sizingPeakW, self.peakPowerCapFactor
+                              * quantities.generator_max_power_w)
 
         storageSummary = None
         if self.runStorageSizing:
@@ -372,7 +440,7 @@ class TefCaseRunner:
             power_curves_path=paths.power_curves,
             aep_results_path=paths.aep_results,
             output_path=paths.economic_settings,
-            peak_mechanical_power_override_w=casePowers.peak_mechanical_power_w,
+            peak_mechanical_power_override_w=sizingPeakW,
         )
 
         eco = EcomoRunner(
@@ -389,7 +457,8 @@ class TefCaseRunner:
         emergentRatedPowerW = aepData['power_summary']['max_rated_power_w']
 
         self._write_tef_summary(quantities, storageSummary, aepMwh,
-                                capacityFactor, metrics, casePowers)
+                                capacityFactor, metrics, casePowers,
+                                sizingPeakW)
 
         return TefCaseResult(
             case_name=self.case_name,
