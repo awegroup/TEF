@@ -112,6 +112,7 @@ def _cycle_power(entry: Dict[str, Any]) -> float:
 
 
 def envelope_power_curves(sources: Sequence[Path], output_path: Path,
+                          primary_source: Optional[int] = None,
                           ) -> List[Dict[str, Any]]:
     """Write the per-wind-speed best of several power curves.
 
@@ -121,9 +122,15 @@ def envelope_power_curves(sources: Sequence[Path], output_path: Path,
     histories. The metadata's nominal powers and cut-in wind speed are
     recomputed as the QSM defines them.
 
+    With ``primary_source``, the other sources are only eligible from the
+    primary's first successful wind speed on (depowering above cut-in);
+    below it the primary's entry is kept, so the kite does not fly in
+    winds where it would only add flight hours for negligible energy.
+
     Args:
         sources: ``power_curves.yml`` paths (``.npz`` siblings required).
         output_path: Envelope ``power_curves.yml`` to write.
+        primary_source: Index of the source that sets the cut-in.
 
     Returns:
         list: One record per (profile, wind speed) naming the selected
@@ -142,9 +149,16 @@ def envelope_power_curves(sources: Sequence[Path], output_path: Path,
     selection = []
     for p, profile in enumerate(envelope['power_curves']):
         profileId = profile['profile_id']
+        firstPrimary = None
+        if primary_source is not None:
+            flags = [e.get('successful') for e in curves[primary_source]
+                     ['power_curves'][p]['wind_speed_data']]
+            firstPrimary = flags.index(True) if True in flags else len(flags)
         for i in range(len(profile['wind_speed_data'])):
-            candidates = [(j, curve['power_curves'][p]['wind_speed_data'][i])
-                          for j, curve in enumerate(curves)]
+            eligible = (range(len(curves)) if firstPrimary is None
+                        or i >= firstPrimary else [primary_source])
+            candidates = [(j, curves[j]['power_curves'][p]
+                           ['wind_speed_data'][i]) for j in eligible]
             successful = [c for c in candidates if c[1].get('successful')]
             best, entry = max(successful or candidates,
                               key=lambda c: _cycle_power(c[1]))
@@ -600,4 +614,169 @@ def run_polar_grid_study(study_config_path: Path) -> pd.DataFrame:
                    'case_cpu_min': float(frame['runtime_min'].sum())},
         'n_failed_cases': int(frame['error'].sum()),
     }, resultsDir / 'polar_grid_summary.yml')
+    return frame
+
+
+# ---------------------------------------------------------------------------
+# Depower: per-wind-speed best CL up to a maximum, on the same polar
+# ---------------------------------------------------------------------------
+
+def _envelope_builder(system_path, _qsm_settings_path, output_path,
+                      sources=(), selection_path=None, source_cls=()):
+    """Power-curve builder: envelope of precomputed fixed-CL curves.
+    ``sources`` are ordered by CL, the last one at the maximum CL: it sets
+    the cut-in, above which the kite may depower to any lower CL."""
+    selection = envelope_power_curves(sources, output_path,
+                                      primary_source=len(sources) - 1)
+    for record in selection:
+        record['cl'] = source_cls[record.pop('source')]
+    if selection_path is not None:
+        write_yaml({'selection': selection}, selection_path)
+
+
+def _run_depower_case(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Process-pool worker: one depowered case from existing curves."""
+    import functools
+    import traceback
+
+    caseDir = Path(job['case_dir'])
+    caseDir.mkdir(parents=True, exist_ok=True)
+    start = time.perf_counter()
+    try:
+        builder = functools.partial(
+            _envelope_builder, sources=[Path(s) for s in job['sources']],
+            source_cls=job['source_cls'],
+            selection_path=caseDir / 'depower_selection.yml')
+        with open(caseDir / 'run.log', 'w', encoding='utf-8') as log, \
+                contextlib.redirect_stdout(log):
+            TefCaseRunner(
+                case_dir=caseDir,
+                design=DesignVariables(case_name=caseDir.name,
+                                       **job['design']),
+                inputs_dir=Path(job['inputs_dir']),
+                validate=False, run_storage_sizing=True, overwrite=True,
+                verbose=False, power_curve_builder=builder,
+                # The source curves already end with the cut-out zero point.
+                zero_power_beyond_cut_out=False,
+                peak_power_cap_factor=job['peak_power_cap_factor'],
+            ).run()
+        error = None
+    except Exception:
+        error = traceback.format_exc()
+        (caseDir / 'error.txt').write_text(error, encoding='utf-8')
+    runtime = time.perf_counter() - start
+    write_yaml({'runtime_s': runtime, 'error': error},
+               caseDir / 'case_status.yml')
+    return {'case_dir': str(caseDir), 'runtime_s': runtime, 'error': error}
+
+
+def run_depower_study(study_config_path: Path) -> pd.DataFrame:
+    """Depowered variant of a finished polar grid study.
+
+    For every (L/D_max, maximum CL, wing area) the kite may fly, at each
+    wind speed, any of the source study's fixed-CL operating points with
+    CL <= the maximum (same polar, same area): the envelope of those power
+    curves is evaluated through AEP, storage, drivetrain and EcoMo. No new
+    QSM runs are needed. Writes the same files as
+    :func:`run_polar_grid_study` (``polar_grid.csv``, optima, summary) plus
+    ``depower_selection.yml`` per case.
+
+    Returns:
+        The table of all depowered cases.
+    """
+    from tef.kite_studies import _case_record
+
+    data = load_yaml(study_config_path)
+    root = project_root()
+    source = load_yaml(root / data['source_study'])
+    sourceDir = root / source['results_dir']
+    resultsDir = root / data['results_dir']
+    sourceSummary = load_yaml(sourceDir / 'polar_grid_summary.yml')
+    clDesign = float(source['polar']['cl_design'])
+    ldValues = [float(v) for v in source['polar']['ld_max']]
+    clValues = sorted(float(v) for v in source['polar']['cl'])
+    areas = [float(a) for a in sourceSummary['flat_areas_m2']]
+    capFactor = (source.get('case_options') or {}).get(
+        'peak_power_cap_factor')
+    execution = data.get('execution') or {}
+    workers = int(execution.get('workers', max(1, os.cpu_count() - 2)))
+    reuse = bool(execution.get('reuse_cases', True))
+    studyStart = time.perf_counter()
+
+    def cellName(ld, cl):
+        return f"E{ld:04.1f}_CL{cl:.2f}".replace('.', 'p')
+
+    def areaName(area):
+        return f"S{area:05.1f}".replace('.', 'p')
+
+    nodes, jobs = [], []
+    for ld in ldValues:
+        for clMax in clValues:
+            lower = [cl for cl in clValues if cl <= clMax + 1e-9]
+            for area in areas:
+                caseDir = resultsDir / cellName(ld, clMax) / areaName(area)
+                nodes.append((ld, clMax, caseDir))
+                status = caseDir / 'case_status.yml'
+                if (reuse and status.exists()
+                        and not load_yaml(status)['error']):
+                    continue
+                design = {k: float(v) for k, v in source['design'].items()}
+                design['flat_area_m2'] = area
+                jobs.append({
+                    'case_dir': str(caseDir),
+                    'inputs_dir': str(sourceDir / 'inputs'),
+                    'design': design,
+                    'sources': [str(sourceDir / cellName(ld, cl)
+                                    / areaName(area) / 'power_curves.yml')
+                                for cl in lower],
+                    'source_cls': lower,
+                    'peak_power_cap_factor': capFactor,
+                })
+
+    print(f"Depower: {len(nodes)} cases ({len(jobs)} to run) from "
+          f"{sourceDir.name}, {workers} workers")
+    if jobs:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            done = 0
+            for outcome in pool.map(_run_depower_case, jobs):
+                done += 1
+                if outcome['error'] or done % 25 == 0 or done == len(jobs):
+                    state = 'FAILED' if outcome['error'] else 'ok'
+                    print(f"  [{done}/{len(jobs)}] "
+                          f"{Path(outcome['case_dir']).parent.name}/"
+                          f"{Path(outcome['case_dir']).name}: {state}",
+                          flush=True)
+
+    records = []
+    for ld, clMax, caseDir in nodes:
+        record = _case_record('polar', caseDir)
+        record.update({'ld_max': ld, 'cl': clMax,
+                       'cd': ScaledPolar(ld, clDesign).cd(clMax)})
+        selectionPath = caseDir / 'depower_selection.yml'
+        if selectionPath.exists():
+            selection = load_yaml(selectionPath)['selection']
+            flown = [s for s in selection if s['successful']]
+            record['n_depowered_wind_speeds'] = sum(
+                s['cl'] < clMax - 1e-9 for s in flown)
+            record['min_cl_flown'] = min((s['cl'] for s in flown),
+                                         default=None)
+        records.append(record)
+    frame = pd.DataFrame(records)
+    frame.to_csv(resultsDir / 'polar_grid.csv', index=False)
+    feasible = frame[~frame['error']]
+    optima = feasible.loc[feasible.groupby(['ld_max', 'cl'])
+                          ['lcoe_eur_per_mwh'].idxmin()].copy()
+    optima['area_on_bound'] = optima['flat_area_m2'].isin(
+        [min(areas), max(areas)])
+    optima.to_csv(resultsDir / 'polar_grid_optima.csv', index=False)
+    summary = dict(sourceSummary)
+    summary.update({
+        'metadata': {'name': data.get('metadata', {}).get('name', ''),
+                     'generated_by': 'TEF depower study',
+                     'source_study': data['source_study']},
+        'depower': True,
+        'timing': {'total_wall_min': (time.perf_counter() - studyStart) / 60},
+        'n_failed_cases': int(frame['error'].sum()),
+    })
+    write_yaml(summary, resultsDir / 'polar_grid_summary.yml')
     return frame

@@ -23,6 +23,8 @@ from tef.io import load_yaml, project_root, studies_config_dir
 SEQUENTIAL = ['#cde2fb', '#86b6ef', '#3987e5', '#1c5cab', '#0d366b']
 ORDINAL = ['#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281']
 SURFACE = '#fcfcfb'
+CL_AXIS_LABEL = 'Fixed reel-out lift coefficient $C_L$ [-]'
+CL_MODE_TEXT = 'each case flies one fixed $C_L$ at all wind speeds'
 INK = '#0b0b0b'
 INK_2 = '#52514e'
 MUTED = '#898781'
@@ -111,7 +113,7 @@ def plot_polar_grid(frame: pd.DataFrame, kites: dict, cl_design: float,
                     color=INK, fontsize=9, fontweight='bold')
     ax.set_xticks(clValues)
     ax.set_yticks(ldValues)
-    ax.set_xlabel('Fixed reel-out lift coefficient $C_L$ [-]')
+    ax.set_xlabel(CL_AXIS_LABEL)
     ax.set_ylabel('Polar efficiency $(L/D)_{max}$ [-]')
     ax.set_title('Optimum LCoE [EUR/MWh] and wing area  (box: best $C_L$)'
                  if area_optimised
@@ -143,8 +145,8 @@ def plot_polar_grid(frame: pd.DataFrame, kites: dict, cl_design: float,
                  color=INK)
     fig.text(0.01, 0.905,
              f"Polar family $C_D = C_{{L,d}}/(2E)\\,(1 + (C_L/C_{{L,d}})^2)$, "
-             f"$C_{{L,d}}$ = {cl_design:g}; each case flies one fixed $C_L$ "
-             "at all wind speeds.  Diamonds: kites at their implied "
+             f"$C_{{L,d}}$ = {cl_design:g}; {CL_MODE_TEXT} "
+             ".  Diamonds: kites at their implied "
              "$(L/D)_{max}$ (not run).", color=INK_2, fontsize=9)
     fig.tight_layout(rect=(0, 0, 1, 0.88))
     fig.savefig(output, dpi=200)
@@ -200,7 +202,7 @@ def _metric_map(fig, ax, ok: pd.DataFrame, ld_values, cl_values,
                     color=INK, fontsize=9.5, fontweight='bold')
     ax.set_xticks(cl_values)
     ax.set_yticks(ld_values)
-    ax.set_xlabel('Fixed reel-out lift coefficient $C_L$ [-]')
+    ax.set_xlabel(CL_AXIS_LABEL)
     ax.set_ylabel('Polar efficiency $(L/D)_{max}$ [-]')
     ax.set_title(title)
     ax.grid(False)
@@ -316,7 +318,7 @@ def _continuous_map(fig, ax, table: pd.DataFrame, ramp, title: str,
                           'ec': 'none', 'alpha': 0.8})
     ax.set_xticks(clValues)
     ax.set_yticks(ldValues)
-    ax.set_xlabel('Fixed reel-out lift coefficient $C_L$ [-]')
+    ax.set_xlabel(CL_AXIS_LABEL)
     ax.set_ylabel('Polar efficiency $(L/D)_{max}$ [-]')
     ax.set_title(title)
     ax.grid(False)
@@ -393,6 +395,93 @@ def _mark_qsm_failures(frame: pd.DataFrame, results_dir: Path) -> pd.DataFrame:
     return frame
 
 
+# Diverging pair of the reference palette: blue (improvement) <-> red,
+# neutral grey midpoint.
+DIVERGING = ['#104281', '#3987e5', '#cde2fb', '#f0efec', '#f9cfce',
+             '#e34948', '#8f1f1e']
+
+
+def plot_depower_gain(depower: pd.DataFrame, fixed: pd.DataFrame,
+                      kites: dict, title: str, output: Path) -> None:
+    """Change of the optimum LCoE and AEP from depowering, per cell
+    (both at their own optimal wing area)."""
+    ldValues = sorted(depower['ld_max'].unique())
+    clValues = sorted(depower['cl'].unique())
+
+    def table(frame, column):
+        return frame.pivot(index='ld_max', columns='cl',
+                           values=column).reindex(index=ldValues,
+                                                  columns=clValues)
+
+    panels = [
+        ('lcoe_eur_per_mwh', 'LCoE change with depower [%]  (blue = cheaper)',
+         False),
+        ('aep_mwh', 'AEP change with depower [%]  (blue = more energy)',
+         True),
+    ]
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.6))
+    for ax, (column, heading, higherIsBetter) in zip(axes, panels):
+        new, old = table(depower, column), table(fixed, column)
+        change = (new / old - 1.0) * 100.0
+        # Blue always means "better": flip the sign convention for AEP.
+        shown = -change if higherIsBetter else change
+        limit = np.nanmax(np.abs(shown.values)) or 1.0
+        cmap = LinearSegmentedColormap.from_list('div', DIVERGING)
+        mesh = ax.pcolormesh(_edges(clValues), _edges(ldValues),
+                             shown.values, cmap=cmap, vmin=-limit,
+                             vmax=limit, shading='flat')
+        dAreas = table(depower, 'flat_area_m2')
+        fAreas = table(fixed, 'flat_area_m2')
+        for i, ld in enumerate(ldValues):
+            for j, cl in enumerate(clValues):
+                value = change.values[i, j]
+                if not np.isfinite(value):
+                    text = 'fixed $C_L$\nfailed' if np.isfinite(
+                        new.values[i, j]) else 'fail'
+                    ax.text(cl, ld - 0.3, text, ha='center', va='center',
+                            fontsize=8, color=INK_2)
+                    continue
+                strong = abs(shown.values[i, j]) > 0.55 * limit
+                ax.text(cl, ld - 0.3,
+                        f"{value:+.0f}%\n{fAreas.values[i, j]:g}"
+                        f"$\\to${dAreas.values[i, j]:g} m$^2$",
+                        ha='center', va='center', fontsize=8,
+                        color='#ffffff' if strong else INK)
+        for name, kite in kites.items():
+            ax.scatter([kite['cl']], [kite['implied_ld_max']], s=60,
+                       marker='D', color='#ffffff', edgecolor=INK,
+                       linewidth=1.4, zorder=5, clip_on=False)
+            ax.annotate(name, (kite['cl'], kite['implied_ld_max']),
+                        xytext=(7, 4), textcoords='offset points',
+                        color=INK, fontsize=9.5, fontweight='bold')
+        ax.set_xticks(clValues)
+        ax.set_yticks(ldValues)
+        ax.set_xlabel('Maximum reel-out lift coefficient $C_L$ [-]')
+        ax.set_ylabel('Polar efficiency $(L/D)_{max}$ [-]')
+        ax.set_title(heading)
+        ax.grid(False)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        colorbar = fig.colorbar(mesh, ax=ax, fraction=0.05, pad=0.02,
+                                format='{x:.0f}')
+        colorbar.outline.set_visible(False)
+        colorbar.ax.tick_params(color=MUTED, labelcolor=INK_2)
+        colorbar.set_label('improvement  <  0  >  worse [%]'
+                           if not higherIsBetter else
+                           'more energy  <  0  >  less energy [%]',
+                           color=INK_2)
+    fig.suptitle(title, x=0.01, ha='left', fontsize=12, fontweight='bold',
+                 color=INK)
+    fig.text(0.01, 0.905,
+             "Depower vs fixed $C_L$, both at their own optimal wing area "
+             "(second line: fixed $\\to$ depower area). Depower: at each "
+             "wind speed the best $C_L$ up to the maximum, same polar.",
+             color=INK_2, fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.88))
+    fig.savefig(output, dpi=200)
+    plt.close(fig)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -427,7 +516,13 @@ def main() -> None:
         areaText = 'wing area optimised per cell'
     else:
         areaText = f"S = {design['flat_area_m2']:g} m$^2$"
-    title = (f"Polar efficiency x fixed $C_L$ - "
+    depowered = bool(summary.get('depower'))
+    if depowered:
+        global CL_AXIS_LABEL, CL_MODE_TEXT
+        CL_AXIS_LABEL = 'Maximum reel-out lift coefficient $C_L$ [-]'
+        CL_MODE_TEXT = ('depower: at each wind speed the best $C_L$ up to '
+                        'the maximum')
+    title = (f"Polar efficiency x {'maximum $C_L$ (depower)' if depowered else 'fixed $C_L$'} - "
              f"{design['generator_max_power_w'] / 1e3:g} kW generator, "
              f"{areaText}, "
              f"$\\sigma$ = {design['allowable_tether_stress_pa'] / 1e9:g} GPa")
@@ -447,6 +542,14 @@ def main() -> None:
         plot_continuous_maps(frame, kites, clDesign, title,
                              plotDir / f'polar_grid_contours{suffix}.png',
                              fixedArea)
+    if depowered and fixedArea is None and config.get('source_study'):
+        sourceConfig = load_yaml(project_root() / config['source_study'])
+        fixed = _mark_qsm_failures(
+            pd.read_csv(project_root() / sourceConfig['results_dir']
+                        / 'polar_grid_optima.csv'),
+            project_root() / sourceConfig['results_dir'])
+        plot_depower_gain(frame, fixed, kites, title,
+                          plotDir / 'polar_grid_depower_gain.png')
     print(f"Plots written to {plotDir}")
 
 

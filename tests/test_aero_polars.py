@@ -146,3 +146,14 @@ def test_case_qsm_override_writes_case_local_settings(tmp_path):
     assert path.parent == tmp_path / 'case'
     assert aero['kite_lift_coefficient_reel_out'] == 1.0
     assert aero['kite_drag_coefficient_reel_out'] == 0.14
+
+
+def test_envelope_primary_source_sets_cut_in(tmp_path):
+    # Source 1 (the maximum-CL curve) cannot fly at the first wind speed;
+    # source 0 could, but depowering is only allowed from source 1's cut-in.
+    a, b = tmp_path / 'a.yml', tmp_path / 'b.yml'
+    _write_curve(a, [5.0, 100.0, 900.0])
+    _write_curve(b, [0.0, 300.0, 400.0], successful=[False, True, True])
+    out = tmp_path / 'env.yml'
+    selection = envelope_power_curves([a, b], out, primary_source=1)
+    assert [s['source'] for s in selection] == [1, 1, 0]

@@ -1,0 +1,20 @@
+metadata:
+  name: Aero polar grid 40 kW with depower - best CL up to the maximum per wind speed
+
+# Reuses the fixed-CL power curves of the source study (same polar, same
+# areas): a kite with maximum CL X flies, at each wind speed, the best
+# operating point with CL <= X. No new QSM runs.
+source_study: config/studies/aero_polar_grid_40kw.yml
+results_dir: results/aero_polar_grid_opt_40kw_depower
+
+# Copied from the source study (used by the plot script).
+design:
+  flat_area_m2: 75.0
+  allowable_tether_stress_pa: 2.5e+8
+  generator_max_power_w: 40000.0
+  max_tether_speed_m_s: 10.0
+  tether_length_m: 500.0
+
+execution:
+  workers: 10
+  reuse_cases: true
