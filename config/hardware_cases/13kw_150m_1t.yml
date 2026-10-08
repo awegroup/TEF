@@ -1,0 +1,51 @@
+metadata:
+  name: 13 kW ground station, 150 m tether, 1 t maximum tether force
+
+base_config_dir: config/base
+
+# Hardware. Forces in N, speeds in m/s, lengths in m.
+hardware:
+  generator_kw: 13.0                  # ground station generator limit
+  max_tether_force_n: 9810.0          # 1 t; caps the flight and sizes the tether
+  max_tether_speed_m_s: 10.0          # drum limit, reel-out and reel-in
+  tether_length_m: 150.0              # maximum tether length
+  allowable_tether_stress_pa: 2.5e+8  # tether sizing working stress
+  peak_power_cap_factor: 1.5          # drivetrain sized on <= 1.5 x generator
+  areas_m2: [25.0, 20.0]              # fixed flat wing areas, one study each
+
+# Operational constraints on the optimised pumping cycle. Tether lengths
+# left null follow the base fractions of tether_length_m (in brackets).
+constraints:
+  min_tether_length_m: 30.0           # shortest tether, end of reel-in (0.2 L)
+  max_reel_in_end_length_m: null      # longest end of reel-in (0.8 L)
+  reel_out_end_length_m: null         # [min, max] end of reel-out ([0.8, 0.95] L)
+  min_stroke_m: null                  # reel-out minus reel-in end (0.1 L)
+  minimum_height_m: 20.0              # lowest kite altitude during reel-out
+  minimum_tether_force_n: 750.0       # lowest tether force during the cycle
+  elevation_traction_deg: [30.0, 60.0]   # reel-out elevation bounds
+  elevation_end_rori_deg: [30.0, 80.0]   # end of the RORI transition
+  max_elevation_step_deg: 10.0        # between reel-out elevation points
+
+# Operating envelope: no production above the cut-out.
+wind_speeds:
+  cut_in: 4.0
+  cut_out: 20.0
+  n_points: 14
+
+# Reel-out polar CD = CL_d/(2E) * (1 + (CL/CL_d)^2), E = L/D_max at CL_d;
+# each case flies one fixed CL at all wind speeds. Reel-in on the same
+# polar at reel_in_cl.
+polar:
+  cl_design: 0.8
+  ld_max: [4.5, 6.0, 7.5, 9.0, 10.5, 12.0]
+  cl: [0.4, 0.6, 0.8, 1.0, 1.2]
+reel_in_cl: 0.35
+
+# Placed on the maps at their implied L/D_max (not run).
+reference_kites:
+  V3: {cl: 0.63, cd: 0.14}
+  V4: {cl: 0.90, cd: 0.17}
+  V5: {cl: 1.20, cd: 0.27}
+
+execution:
+  workers: 10

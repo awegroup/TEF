@@ -9,6 +9,7 @@ venv/
 
 # Config
 config/studies
+config/hardware_cases
 config/base_production 
 config/base_sens_mass_e1p0
 config/base_sens_mass_e1p5

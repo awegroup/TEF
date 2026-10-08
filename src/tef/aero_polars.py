@@ -527,6 +527,10 @@ def run_polar_grid_study(study_config_path: Path) -> pd.DataFrame:
         settings = load_yaml(inputs.qsm_settings)
         _deep_update(settings, data['qsm_override'])
         write_yaml(settings, inputs.qsm_settings)
+    if data.get('scaling_override'):
+        settings = load_yaml(inputs.scaling_settings)
+        _deep_update(settings, data['scaling_override'])
+        write_yaml(settings, inputs.scaling_settings)
 
     # Optional wing-area grid per cell (the design's area otherwise); the
     # reel-in coefficients optionally follow each wing's own polar.

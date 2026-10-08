@@ -5,6 +5,10 @@ Writes ``<results_dir>/plots/polar_grid.png``:
         the reference kites placed at their implied L/D_max
     (b) LCoE against L/D_max, one line per CL
     (c) AEP against L/D_max, one line per CL
+
+plus ``polar_grid_power_curves.png`` (one panel per CL, one curve per
+L/D_max) and ``polar_grid_operation.png`` (power, reel-out force, reel-out
+and reel-in speed against wind speed).
 """
 
 import argparse
@@ -370,16 +374,190 @@ def plot_continuous_maps(frame: pd.DataFrame, kites: dict, cl_design: float,
 MAX_FAILED_POINTS_ABOVE_CUT_IN = 3
 
 
+def _case_dir(results_dir: Path, row) -> Path:
+    """Case directory of a grid row: ``S<area>`` subfolders only when the
+    study sweeps wing areas."""
+    cellDir = results_dir / (f"E{row['ld_max']:04.1f}_CL{row['cl']:.2f}"
+                             .replace('.', 'p'))
+    areaDir = cellDir / f"S{row['flat_area_m2']:05.1f}".replace('.', 'p')
+    return areaDir if areaDir.is_dir() else cellDir
+
+
+def _power_curve(case_dir: Path):
+    """Wind speed [m/s] and average cycle electrical power [kW]; failed
+    QSM points are NaN and the appended cut-out zero point is dropped."""
+    entries = load_yaml(case_dir / 'power_curves.yml')['power_curves'][0][
+        'wind_speed_data']
+    entries = [e for e in entries
+               if e.get('performance', {}).get('timing') != {}]
+    wind = np.array([e['wind_speed'] for e in entries])
+    power = np.array([e['performance']['electrical_power']
+                      ['average_cycle_power'] if e.get('successful')
+                      else np.nan for e in entries]) / 1e3
+    return wind, power
+
+
+def plot_power_curves(frame: pd.DataFrame, results_dir: Path,
+                      generator_kw: float, title: str,
+                      output: Path) -> None:
+    """One panel per CL, one power curve per L/D_max (dark = efficient)."""
+    ldValues = sorted(frame['ld_max'].unique())
+    clValues = sorted(frame['cl'].unique())
+    ramp = LinearSegmentedColormap.from_list('ld', SEQUENTIAL[1:])
+    colors = {ld: ramp(i / max(1, len(ldValues) - 1))
+              for i, ld in enumerate(ldValues)}
+    fig, axes = plt.subplots(1, len(clValues),
+                             figsize=(3.0 * len(clValues), 4.0),
+                             sharex=True, sharey=True)
+    axes = np.atleast_1d(axes)
+    for ax, cl in zip(axes, clValues):
+        for ld in ldValues:
+            rows = frame[np.isclose(frame['ld_max'], ld)
+                         & np.isclose(frame['cl'], cl)]
+            if rows.empty:
+                continue
+            path = _case_dir(results_dir, rows.iloc[0]) / 'power_curves.yml'
+            if not path.exists():
+                continue
+            wind, power = _power_curve(path.parent)
+            ax.plot(wind, power, color=colors[ld], marker='o',
+                    markersize=2.5, label=f"{ld:g}")
+        ax.axhline(generator_kw, color=MUTED, linestyle='--', linewidth=1)
+        ax.set_title(f"$C_L$ = {cl:g}")
+        ax.set_xlabel('Wind speed at 200 m [m/s]')
+    axes[0].set_ylabel('Average cycle electrical power [kW]')
+    axes[0].annotate(f"generator {generator_kw:g} kW", (axes[0].get_xlim()[0],
+                     generator_kw), xytext=(4, 4), textcoords='offset points',
+                     color=MUTED, fontsize=8.5)
+    axes[-1].legend(title='$(L/D)_{max}$', loc='center left',
+                    bbox_to_anchor=(1.02, 0.5),
+                    title_fontsize=9)
+    fig.suptitle(title, x=0.01, ha='left', fontsize=12, fontweight='bold',
+                 color=INK)
+    fig.text(0.01, 0.875,
+             "Power curves per cell, one panel per fixed $C_L$; gaps are "
+             "failed QSM points. Dashed: generator limit (instantaneous "
+             "reel-out power; the cycle average stays below it).",
+             color=INK_2, fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.85))
+    fig.savefig(output, dpi=200)
+    plt.close(fig)
+
+
+def _operating_curves(case_dir: Path) -> pd.DataFrame:
+    """Per wind speed: cycle-average and mean reel-out electrical power
+    [kW], mean reel-out tether force [kN], mean reel-out and reel-in speeds
+    [m/s] (reel-in as a magnitude). Phase ids in the time series:
+    0 reel-out, 1 RORI transition, 2 reel-in, 3 RIRO transition. Failed QSM
+    points are NaN."""
+    wind, power = _power_curve(case_dir)
+    entries = [e for e in load_yaml(case_dir / 'power_curves.yml')[
+        'power_curves'][0]['wind_speed_data']
+        if e.get('performance', {}).get('timing') != {}]
+    series = np.load(case_dir / 'power_curves.npz', allow_pickle=True)
+    rows = []
+    for i, (ws, p) in enumerate(zip(wind, power)):
+        powerOut = (entries[i]['performance']['electrical_power']
+                    ['average_reel_out_power'] / 1e3
+                    if np.isfinite(p) else np.nan)
+        row = {'wind_speed': ws, 'power_kw': p, 'power_out_kw': powerOut,
+               'force_out_kn': np.nan,
+               'speed_out_m_s': np.nan, 'speed_in_m_s': np.nan}
+        key = f'p1_ws{i}_phase_id'
+        if np.isfinite(p) and key in series.files:
+            phase = np.asarray(series[key])
+            speed = np.asarray(series[f'p1_ws{i}_reel_speed'])
+            force = np.asarray(series[f'p1_ws{i}_tether_force'])
+            out, back = phase == 0, phase == 2
+            if out.any():
+                row['force_out_kn'] = force[out].mean() / 1e3
+                row['speed_out_m_s'] = speed[out].mean()
+            if back.any():
+                row['speed_in_m_s'] = -speed[back].mean()
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def plot_operating_curves(frame: pd.DataFrame, results_dir: Path,
+                          limits: dict, title: str, output: Path) -> None:
+    """Cycle-average and reel-out power, reel-out tether force, reel-out
+    and reel-in speed against wind speed: one column per CL, one line per
+    L/D_max. ``limits`` holds the hardware limits drawn dashed
+    (``generator_kw``, ``max_tether_force_kn``, ``max_tether_speed_m_s``;
+    any may be None)."""
+    ldValues = sorted(frame['ld_max'].unique())
+    clValues = sorted(frame['cl'].unique())
+    ramp = LinearSegmentedColormap.from_list('ld', SEQUENTIAL[1:])
+    colors = {ld: ramp(i / max(1, len(ldValues) - 1))
+              for i, ld in enumerate(ldValues)}
+    quantities = [
+        ('power_kw', 'Cycle-average\nelectrical power [kW]', None, None),
+        ('power_out_kw', 'Mean reel-out\nelectrical power [kW]',
+         limits.get('generator_kw'), 'generator'),
+        ('force_out_kn', 'Mean reel-out\ntether force [kN]',
+         limits.get('max_tether_force_kn'), 'max force'),
+        ('speed_out_m_s', 'Mean reel-out\nspeed [m/s]',
+         limits.get('max_tether_speed_m_s'), 'max speed'),
+        ('speed_in_m_s', 'Mean reel-in\nspeed [m/s]',
+         limits.get('max_tether_speed_m_s'), 'max speed'),
+    ]
+    curves = {}
+    for ld in ldValues:
+        for cl in clValues:
+            rows = frame[np.isclose(frame['ld_max'], ld)
+                         & np.isclose(frame['cl'], cl)]
+            if rows.empty:
+                continue
+            caseDir = _case_dir(results_dir, rows.iloc[0])
+            if (caseDir / 'power_curves.npz').exists():
+                curves[(ld, cl)] = _operating_curves(caseDir)
+
+    fig, axes = plt.subplots(len(quantities), len(clValues),
+                             figsize=(3.0 * len(clValues),
+                                      2.3 * len(quantities) + 1.2),
+                             sharex=True, sharey='row', squeeze=False)
+    for col, cl in enumerate(clValues):
+        axes[0, col].set_title(f"$C_L$ = {cl:g}")
+        for row, (column, label, limit, limitText) in enumerate(quantities):
+            ax = axes[row, col]
+            for ld in ldValues:
+                data = curves.get((ld, cl))
+                if data is not None:
+                    ax.plot(data['wind_speed'], data[column],
+                            color=colors[ld], marker='o', markersize=2,
+                            linewidth=1.6, label=f"{ld:g}")
+            if limit is not None:
+                ax.axhline(limit, color=MUTED, linestyle='--', linewidth=1)
+                if col == 0:
+                    ax.annotate(f"{limitText} {limit:.3g}",
+                                (0, limit), xycoords=('axes fraction', 'data'),
+                                xytext=(4, 3), textcoords='offset points',
+                                color=MUTED, fontsize=8)
+            if col == 0:
+                ax.set_ylabel(label)
+            if row == len(quantities) - 1:
+                ax.set_xlabel('Wind speed at 200 m [m/s]')
+    axes[0, -1].legend(title='$(L/D)_{max}$', loc='upper left',
+                       bbox_to_anchor=(1.02, 1.0), title_fontsize=9)
+    fig.suptitle(title, x=0.01, ha='left', fontsize=12, fontweight='bold',
+                 color=INK)
+    fig.text(0.01, 1 - 0.75 / fig.get_figheight(),
+             "Operating point per wind speed, one column per fixed $C_L$; "
+             "force and speeds are phase means (reel-in speed as a "
+             "magnitude). Dashed: hardware limits. Gaps: failed QSM points.",
+             color=INK_2, fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 1 - 1.0 / fig.get_figheight()))
+    fig.savefig(output, dpi=200)
+    plt.close(fig)
+
+
 def _mark_qsm_failures(frame: pd.DataFrame, results_dir: Path) -> pd.DataFrame:
     """Blank LCoE/AEP of cases whose power curve failed at more than
     MAX_FAILED_POINTS_ABOVE_CUT_IN wind speeds above the first productive
     one; those zeros are solver failures, not physics."""
     frame = frame.copy()
     for idx, row in frame.iterrows():
-        caseDir = (results_dir / (f"E{row['ld_max']:04.1f}_CL{row['cl']:.2f}"
-                                  .replace('.', 'p'))
-                   / f"S{row['flat_area_m2']:05.1f}".replace('.', 'p'))
-        path = caseDir / 'power_curves.yml'
+        path = _case_dir(results_dir, row) / 'power_curves.yml'
         if not path.exists():
             continue
         entries = load_yaml(path)['power_curves'][0]['wind_speed_data']
@@ -482,23 +660,17 @@ def plot_depower_gain(depower: pd.DataFrame, fixed: pd.DataFrame,
     plt.close(fig)
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        '--study', type=Path,
-        default=studies_config_dir() / 'aero_polar_grid_40kw.yml',
-        help='Polar grid study configuration file')
-    parser.add_argument(
-        '--fixed-area', type=float, default=None,
-        help="Plot all cells at this wing area [m2] (must be on the "
-             "study's area grid) instead of each cell's optimal area")
-    args = parser.parse_args()
+def plot_study(study_path: Path, fixed_area: Optional[float] = None) -> Path:
+    """Write every figure of a polar grid study; returns the plot folder.
 
-    config = load_yaml(args.study)
+    With ``fixed_area``, all cells are plotted at that wing area (must be
+    on the study's area grid) instead of each cell's optimal area."""
+    global CL_AXIS_LABEL, CL_MODE_TEXT
+    config = load_yaml(study_path)
     resultsDir = project_root() / config['results_dir']
     summary = load_yaml(resultsDir / 'polar_grid_summary.yml')
     areaOptimised = len(summary.get('flat_areas_m2') or []) > 1
-    fixedArea = args.fixed_area
+    fixedArea = fixed_area
     if fixedArea is not None:
         frame = pd.read_csv(resultsDir / 'polar_grid.csv')
         frame = frame[np.isclose(frame['flat_area_m2'], fixedArea)]
@@ -518,7 +690,6 @@ def main() -> None:
         areaText = f"S = {design['flat_area_m2']:g} m$^2$"
     depowered = bool(summary.get('depower'))
     if depowered:
-        global CL_AXIS_LABEL, CL_MODE_TEXT
         CL_AXIS_LABEL = 'Maximum reel-out lift coefficient $C_L$ [-]'
         CL_MODE_TEXT = ('depower: at each wind speed the best $C_L$ up to '
                         'the maximum')
@@ -526,6 +697,14 @@ def main() -> None:
              f"{design['generator_max_power_w'] / 1e3:g} kW generator, "
              f"{areaText}, "
              f"$\\sigma$ = {design['allowable_tether_stress_pa'] / 1e9:g} GPa")
+    if design.get('tether_length_m') is not None:
+        title += f", $L_t$ = {design['tether_length_m']:g} m"
+    forceKn = None
+    if design.get('max_wing_loading_n_m2_projected') is not None:
+        # Maximum tether force = wing loading x projected area (0.79 S).
+        forceKn = (design['max_wing_loading_n_m2_projected'] * 0.79
+                   * (fixedArea or design['flat_area_m2']) / 1e3)
+        title += f", $F_{{t,max}}$ = {forceKn:.2f} kN"
 
     plotDir = resultsDir / 'plots'
     plotDir.mkdir(parents=True, exist_ok=True)
@@ -542,6 +721,15 @@ def main() -> None:
         plot_continuous_maps(frame, kites, clDesign, title,
                              plotDir / f'polar_grid_contours{suffix}.png',
                              fixedArea)
+    plot_power_curves(frame, resultsDir,
+                      design['generator_max_power_w'] / 1e3, title,
+                      plotDir / f'polar_grid_power_curves{suffix}.png')
+    plot_operating_curves(
+        frame, resultsDir,
+        {'generator_kw': design['generator_max_power_w'] / 1e3,
+         'max_tether_force_kn': forceKn,
+         'max_tether_speed_m_s': design.get('max_tether_speed_m_s')},
+        title, plotDir / f'polar_grid_operation{suffix}.png')
     if depowered and fixedArea is None and config.get('source_study'):
         sourceConfig = load_yaml(project_root() / config['source_study'])
         fixed = _mark_qsm_failures(
@@ -550,7 +738,21 @@ def main() -> None:
             project_root() / sourceConfig['results_dir'])
         plot_depower_gain(frame, fixed, kites, title,
                           plotDir / 'polar_grid_depower_gain.png')
-    print(f"Plots written to {plotDir}")
+    return plotDir
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--study', type=Path,
+        default=studies_config_dir() / 'aero_polar_grid_40kw.yml',
+        help='Polar grid study configuration file')
+    parser.add_argument(
+        '--fixed-area', type=float, default=None,
+        help="Plot all cells at this wing area [m2] (must be on the "
+             "study's area grid) instead of each cell's optimal area")
+    args = parser.parse_args()
+    print(f"Plots written to {plot_study(args.study, args.fixed_area)}")
 
 
 if __name__ == '__main__':
